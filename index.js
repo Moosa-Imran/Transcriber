@@ -12,7 +12,7 @@ require('dotenv').config(); // Loads .env file contents into process.env
 
 // --- SETUP ---
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3050;
 app.use(express.json());
 
 // Initialize yt-dlp
