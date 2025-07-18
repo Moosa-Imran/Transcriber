@@ -11,7 +11,7 @@ require('dotenv').config();
 
 // --- SETUP ---
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3050;
 
 // Setup view engine and static files
 app.set('view engine', 'ejs');
