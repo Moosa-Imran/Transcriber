@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reel Transcriber</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .gradient-text {
+            background: linear-gradient(to right, #6ee7b7, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen p-4">
+
+    <div class="bg-gray-800/50 backdrop-blur-sm p-8 rounded-2xl shadow-2xl w-full max-w-2xl border border-gray-700">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold gradient-text">Reel Transcriber</h1>
+            <p class="text-gray-400 mt-2">Paste an Instagram Reel link to get the audio transcript in English.</p>
+        </div>
+
+        <!-- Form -->
+        <form id="transcribeForm">
+            <div class="relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"></path></svg>
+                </div>
+                <input type="url" id="reelUrl" placeholder="https://www.instagram.com/reel/..." required class="w-full bg-gray-700/50 border border-gray-600 rounded-lg pl-10 pr-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200 text-white placeholder-gray-500">
+            </div>
+            <button type="submit" id="submitButton" class="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                Transcribe
+            </button>
+        </form>
+
+        <!-- Loader -->
+        <div id="loader" class="text-center mt-8 hidden">
+            <div class="loader mx-auto"></div>
+            <p class="text-gray-400 mt-4">Downloading & processing audio... this may take a moment.</p>
+        </div>
+
+        <!-- Result -->
+        <div id="result" class="mt-8 hidden">
+            <h2 class="text-2xl font-bold mb-4">Transcript</h2>
+            <div class="relative bg-gray-900 rounded-lg p-4">
+                <button id="copyButton" class="absolute top-2 right-2 p-2 bg-gray-700 hover:bg-gray-600 rounded-md transition" title="Copy to clipboard">
+                    <svg id="copyIcon" class="w-5 h-5 text-gray-300" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+                    <svg id="checkIcon" class="w-5 h-5 text-green-400 hidden" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </button>
+                <p id="transcriptText" class="text-gray-300 whitespace-pre-wrap"></p>
+            </div>
+        </div>
+        
+        <!-- Error -->
+        <div id="error" class="mt-6 hidden bg-red-900/50 border border-red-500 text-red-300 px-4 py-3 rounded-lg">
+            <p id="errorText"></p>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('transcribeForm');
+        const submitButton = document.getElementById('submitButton');
+        const urlInput = document.getElementById('reelUrl');
+        const loader = document.getElementById('loader');
+        const resultDiv = document.getElementById('result');
+        const transcriptText = document.getElementById('transcriptText');
+        const errorDiv = document.getElementById('error');
+        const errorText = document.getElementById('errorText');
+        const copyButton = document.getElementById('copyButton');
+        const copyIcon = document.getElementById('copyIcon');
+        const checkIcon = document.getElementById('checkIcon');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Reset UI
+            submitButton.disabled = true;
+            submitButton.textContent = 'Processing...';
+            loader.classList.remove('hidden');
+            resultDiv.classList.add('hidden');
+            errorDiv.classList.add('hidden');
+
+            try {
+                const response = await fetch('/transcribe', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: urlInput.value }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'An unknown error occurred.');
+                }
+
+                transcriptText.textContent = data.transcript;
+                resultDiv.classList.remove('hidden');
+
+            } catch (err) {
+                errorText.textContent = `Error: ${err.message}`;
+                errorDiv.classList.remove('hidden');
+            } finally {
+                loader.classList.add('hidden');
+                submitButton.disabled = false;
+                submitButton.textContent = 'Transcribe';
+            }
+        });
+
+        copyButton.addEventListener('click', () => {
+            // A fallback for navigator.clipboard for iframe environments
+            const textArea = document.createElement("textarea");
+            textArea.value = transcriptText.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                copyIcon.classList.add('hidden');
+                checkIcon.classList.remove('hidden');
+                setTimeout(() => {
+                    copyIcon.classList.remove('hidden');
+                    checkIcon.classList.add('hidden');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+            }
+            document.body.removeChild(textArea);
+        });
+    </script>
+</body>
+</html>

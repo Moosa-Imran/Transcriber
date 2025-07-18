@@ -2,18 +2,23 @@
 
 // --- DEPENDENCIES (CommonJS Syntax) ---
 const express = require('express');
-// CORRECTED IMPORT: The YtDlpWrap constructor is on the 'default' export of the module.
 const YtDlpWrap = require('yt-dlp-wrap').default;
 const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-require('dotenv').config(); // Loads .env file contents into process.env
+require('dotenv').config();
 
 // --- SETUP ---
 const app = express();
-const port = process.env.PORT || 3050;
+const port = process.env.PORT || 3000;
+
+// Setup view engine and static files
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
 
 // Initialize yt-dlp
 const ytDlpWrap = new YtDlpWrap();
@@ -32,7 +37,14 @@ if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir);
 }
 
-// --- API ENDPOINT ---
+// --- ROUTES ---
+
+// Frontend Route
+app.get('/', (req, res) => {
+    res.render('index');
+});
+
+// API Endpoint
 app.post('/transcribe', async (req, res) => {
     const { url } = req.body;
 
@@ -59,9 +71,7 @@ app.post('/transcribe', async (req, res) => {
                  }
             })
             .on('close', () => {
-                // Resolve only after the process closes
                 if (!downloadedFile) {
-                    // This handles cases where the link is invalid/private and yt-dlp exits without downloading
                     reject(new Error('DownloadFailed'));
                 } else {
                     resolve();
@@ -71,7 +81,6 @@ app.post('/transcribe', async (req, res) => {
         });
 
         if (!downloadedFile || !fs.existsSync(downloadedFile)) {
-             // This is a fallback, the main check is in the 'close' event handler
             throw new Error('DownloadFailed');
         }
         console.log(`[1/3] Download complete. File saved to: ${downloadedFile}`);
@@ -96,17 +105,16 @@ app.post('/transcribe', async (req, res) => {
 
         // --- STEP 3: TRANSCRIBE & TRANSLATE WITH GEMINI ---
         console.log(`[3/3] Starting transcription and translation for: ${audioFilePath}`);
-        const result = await transcribeAndTranslateWithGemini(audioFilePath);
+        const transcript = await transcribeAndTranslateWithGemini(audioFilePath);
         console.log('[3/3] Process complete.');
 
         // --- RESPONSE ---
         res.status(200).json({
             sourceUrl: url,
-            ...result, // Spread the structured result from Gemini
+            transcript: transcript, // Simplified response
         });
 
     } catch (error) {
-        // --- IMPROVED ERROR HANDLING ---
         if (error.message === 'DownloadFailed') {
             return res.status(400).json({ 
                 error: 'Content could not be downloaded. The URL may be invalid, private, or the content is unavailable.' 
@@ -115,7 +123,6 @@ app.post('/transcribe', async (req, res) => {
         console.error('An error occurred during the transcription process:', error);
         res.status(500).json({ error: 'An internal server error occurred.', details: error.message });
     } finally {
-        // --- CLEANUP ---
         if (downloadedFile && fs.existsSync(downloadedFile)) fs.unlinkSync(downloadedFile);
         if (fs.existsSync(audioFilePath)) fs.unlinkSync(audioFilePath);
         console.log('Temporary files cleaned up.');
@@ -123,11 +130,6 @@ app.post('/transcribe', async (req, res) => {
 });
 
 // --- GEMINI TRANSCRIPTION & TRANSLATION FUNCTION ---
-/**
- * Transcribes an audio file and provides a structured JSON output.
- * @param {string} filePath - Path to the audio file (WAV format recommended).
- * @returns {Promise<object>} - An object with language, original transcript, and translation.
- */
 async function transcribeAndTranslateWithGemini(filePath) {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -136,30 +138,15 @@ async function transcribeAndTranslateWithGemini(filePath) {
             inlineData: { data: audioBytes, mimeType: "audio/wav" },
         };
         
-        // Updated prompt to request a JSON object with more vigilant language detection
         const prompt = `
-            Analyze the provided audio and return a single, minified JSON object with no markdown formatting.
-            The JSON object must have these exact keys: "language_detected", "original_transcript", "english_translation".
-            1.  "language_detected": Identify the primary spoken language and provide its two-letter ISO 639-1 code (e.g., "en", "es", "ur"). Be very careful when distinguishing between similar languages like Hindi (hi) and Urdu (ur). Analyze vocabulary and phrasing to make the correct choice.
-            2.  "original_transcript": Transcribe the audio verbatim in its original language.
-            3.  "english_translation": Translate the original transcript into English. If the original is already in English, this field should contain the same text as "original_transcript".
+            Analyze the provided audio.
+            First, transcribe it in its original language.
+            Then, if the transcription is not in English, translate it to English.
+            Provide ONLY the final English text as your response, with no extra formatting or explanations.
         `;
 
         const result = await model.generateContent([prompt, audioPart]);
-        let jsonResponse = result.response.text();
-
-        // **FIX:** Clean the response string to remove markdown fences
-        if (jsonResponse.startsWith('```json')) {
-            jsonResponse = jsonResponse.substring(7, jsonResponse.length - 3).trim();
-        }
-
-        // Safely parse the JSON response from the model
-        try {
-            return JSON.parse(jsonResponse);
-        } catch (parseError) {
-            console.error("Failed to parse JSON response from Gemini:", jsonResponse);
-            throw new Error("Received an invalid response format from the AI model.");
-        }
+        return result.response.text().trim();
 
     } catch (error) {
         console.error("Error during Gemini processing:", error);
@@ -170,5 +157,4 @@ async function transcribeAndTranslateWithGemini(filePath) {
 // --- START SERVER ---
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
-    console.log('Send a POST request to /transcribe with a JSON body: { "url": "your_reel_url" }');
 });
